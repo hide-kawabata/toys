@@ -8,8 +8,6 @@
   -- Tower of Hanoi-specific solution
  --------------------------------------------}
 
---import Control.Monad
-
 data OP = LC | LR | CR | RC | RL | CL deriving (Eq, Ord, Show, Read)
 data Pos = L | R | C deriving (Eq, Ord, Show, Read)
 

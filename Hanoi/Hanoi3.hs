@@ -8,6 +8,8 @@ Tws {tl = [1,2,3,4], tc = [], tr = []}
 Tws {tl = [], tc = [], tr = [1,2,3,4]}
 *Main> solve (start 4) (goal 4)
 [LC,LR,CR,LC,RL,RC,LC,LR,CR,CL,RL,CR,LC,LR,CR]
+*Main> solve (Tws {tl=[2,5], tc=[1,4], tr=[3]}) (goal 5)
+[CL,RC,LR,LC,RC,LR,CL,CR,LR,CL,RC,RL,CL,CR,LR,LC,RC,LR,CL,CR,LR]
 
   -- farther optimized but generic algorithm based
  --------------------------------------------}
@@ -71,6 +73,7 @@ moveOneDisk cur applied = do
 
 genCandidates :: [OP] -> [OP]
 genCandidates [] = [LR, LC, CR, RC, RL, CL]
+--genCandidates [] = [LR, LC] -- valid only for normal initial state
 genCandidates [LR] = [LC, CR, CL]
 genCandidates [RL] = [CR, RC, CL]
 genCandidates [LC] = [LR, RC, RL]

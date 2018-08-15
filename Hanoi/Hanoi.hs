@@ -8,6 +8,8 @@ Tws {tl = [1,2,3,4], tc = [], tr = []}
 Tws {tl = [], tc = [], tr = [1,2,3,4]}
 *Main> solve (start 4) (goal 4)
 [LC,LR,CR,LC,RL,RC,LC,LR,CR,CL,RL,CR,LC,LR,CR]
+*Main> solve (Tws {tl=[2], tc=[1,4], tr=[3]}) (goal 4)
+[CR,LC,RC,RL,CR,CL,RL,CR,LR,LC,RC,LR,CL,CR,LR]
 
   -- naive version
  --------------------------------------------}
@@ -87,3 +89,10 @@ solve :: Tws -> Tws -> [OP]
 solve scrambled goal 
   = head $ head $ dropWhile (\l -> l == []) $
     map (\n -> solveN n scrambled goal) [1..]
+
+main :: IO ()
+main = do
+  putStrLn $ "Input size: "
+  s <- getLine
+  let n = read s :: Int
+  putStrLn $ show $ solve (start n) (goal n)
