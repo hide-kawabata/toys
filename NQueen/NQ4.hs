@@ -35,7 +35,7 @@ check (x, y) ((x', y'):t)
   
 main :: IO ()
 main = do
-  putStr $ "Input size : "
+  putStrLn $ "Input size : "
   s <- getLine
   let r = solveNQ (read s :: Int)
 --  mapM_ (putStrLn.show) r
