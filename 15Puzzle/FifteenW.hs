@@ -145,146 +145,94 @@ moveUD U [a, b, c, d] [e, f, g, h] [i, j, k, l]
 
 ----------------------------------------------------
 
-move1 :: Board -> Writer [OP] Board
-move1 bd = do
-  tell [S12]
-  bd1 <- move1' bd 1 (0,3) []
-  bd2 <- move1' bd1 2 (1,3) [(0,3)]
-  tell [S56]
-  bd3 <- move1' bd2 5 (0,2) [(0,3),(1,3)]
-  bd4 <- move1' bd3 6 (1,2) [(0,3),(1,3),(0,2)]
-  return bd4
-
-move1' :: Board -> Int -> Point -> [Point] -> Writer [OP] Board
-move1' bd m gl tl = do
+-- Move a tile (m) to a point (gl) with respect to a taboo list (tl)
+moveTile :: Int -> Point -> [Point] -> Board -> Writer [OP] Board
+moveTile m gl tl bd = do
   let s = findPos m bd
   if s == gl then return bd
-  else do bd' <- move1'' bd s gl tl
-          bd'' <- move1' bd' m gl tl
-          return bd''
+             else moveTileOneStep s gl tl bd >>= moveTile m gl tl
 
-move1'' :: Board -> Point -> Point -> [Point] -> Writer [OP] Board
-move1'' bd s gl tl = do 
-  let z = findPos 0 bd
+-- Move a tile at a point (s) by one step bound for a point (gl)
+moveTileOneStep :: Point -> Point -> [Point] -> Board -> Writer [OP] Board
+moveTileOneStep s gl tl bd = do
   let t = head $ drop 1 $ reverse $ findOnePath s gl tl -- 0's target
-  let p = findOnePath z t (s:tl)
-  let ops = pathToOp p
-  let p' = pathToOp [s, t] -- additional move
-  let ops' = p' ++ ops
-  let bd' = applyOp (reverse ops') bd
-  writer (bd', reverse ops')
+  move0 t (s:tl) bd -- move blank
+   >>= applyOpW (reverse $ pathToOp [s, t]) -- additional move
 
-
-move0 :: Board -> Point -> [Point] -> Writer [OP] Board
-move0 bd gl tl = do
-  let z = findPos 0 bd
-  let p = findOnePath z gl tl
-  let revops = reverse $ pathToOp p
-  let bd' = applyOp revops bd
-  writer (bd', revops)
-
-
+-- Move blank to a point (gl)
+move0 :: Point -> [Point] -> Board -> Writer [OP] Board
+move0 gl tl bd = applyOpW ops bd
+  where z = findPos 0 bd
+        ops = reverse $ pathToOp $ findOnePath z gl tl
+  
+-- Move a tile along the designated path
 applyOpW :: [OP] -> Board -> Writer [OP] Board
 applyOpW ops bd = writer (applyOp ops bd, ops)
 
 
-move34 :: Board -> Writer [OP] Board
-move34 bd = do
-  tell [S34]
-  bd' <- move34' bd
-  let tl = [(0,2),(1,2),(1,3)]
-  case (findPos 3 bd') of
-    (2,1) -> do bd21 <- move0 bd' (2,3) $ tl ++ [(2,1),(2,2)]
-                applyOpW [U, U, L, D, D, R, U] bd21
-    (3,2) -> do bd32 <- move0 bd' (3,3) $ tl ++ [(3,2),(3,1)]
-                applyOpW [U, U, R, D, D, L, U] bd32
-    (2,2) -> do bd22 <- move0 bd' (3,3) $ tl ++ [(2,2),(2,3)]
-                applyOpW [R, U] bd22
-    (3,3) -> do bd33 <- move0 bd' (2,3) $ tl ++ [(3,3),(3,2)]
-                applyOpW [R, U] bd33
-    (2,3) -> return bd'
+move1 :: Board -> Writer [OP] Board
+move1 bd = do
+  tell [S12]
+  bd12 <- moveTile 1 (0,3) [] bd >>= moveTile 2 (1,3) [(0,3)]
+  tell [S56]
+  moveTile 5 (0,2) [(0,3),(1,3)] bd12
+    >>= moveTile 6 (1,2) [(0,3),(1,3),(0,2)]
+  
 
-move34' :: Board -> Writer [OP] Board
-move34' bd = do
-  let frame = [(2,1),(2,2),(2,3),(3,1),(3,2),(3,3)]
+{-
+  1 2 A B
+  5 6 C D   target: C=4,E=3 or F=4,D=3 --> A=3,B=4
+  - - E F
+  - - - -
+-}
+move34 :: Board -> Writer [OP] Board
+move34 bd = move34x bd [(2,3),(3,3),(2,2),(3,2),(2,1),(3,1)] S34 3 4
+move34x bd [pa, pb, pc, pd, pe, pf] op m m' = do
+  let (lft, rgt, up, dwn) = (head $ pathToOp [pb, pa],
+                             head $ pathToOp [pa, pb],
+                             head $ pathToOp [pc, pa],
+                             head $ pathToOp [pa, pc])
+  let tl = [(0,2),(1,2),(1,3)]
+  tell [op]
+  bd' <- move34' bd [pa, pb, pc, pd, pe, pf] m m'
+  let pos3 = findPos m bd'
+  if pos3 == pe then move0 pa (tl ++ [pe,pc]) bd'
+                     >>= applyOpW [up, up, lft, dwn, dwn, rgt, up]
+  else if pos3 == pd then move0 pb (tl ++ [pd,pf]) bd'
+                          >>= applyOpW [up, up, rgt, dwn, dwn, lft, up]
+  else if pos3 == pc then move0 pb (tl ++ [pc,pa]) bd'
+                          >>= applyOpW [rgt, up]
+  else if pos3 == pb then move0 pa (tl ++ [pb,pd]) bd'
+                          >>= applyOpW [rgt, up]
+  else -- if pos3 == pa then
+       return bd'
+
+
+move34' :: Board -> [(Int,Int)] -> Int -> Int -> Writer [OP] Board
+move34' bd frame m m' = do
+  let [pa, pb, pc, pd, pe, pf] = frame
   let tl = [(0,3),(1,3),(0,2),(1,2)]
-  let pos3 = findPos 3 bd
-  let pos4 = findPos 4 bd
+  let pos3 = findPos m bd
+  let pos4 = findPos m' bd
+  let greatPos34 p3 p4
+         | (p3,p4)==(pe,pc) = True
+         | (p3,p4)==(pd,pf) = True
+         | (p3,p4)==(pb,pd) = True
+         | (p3,p4)==(pa,pb) = True
+         | (p3,p4)==(pc,pa) = True
+         | otherwise = False
   if elem pos3 frame && elem pos4 frame then
        if greatPos34 pos3 pos4 then return bd
-       else 
-       do bd'' <- move1' bd 3 (3,0) tl
-          bd' <- move1' bd'' 4 (2,2) tl
-          bd3 <- move1' bd' 3 (2,1) $ tl ++ [(2,2)]
-          return bd3
-  else if not (elem pos3 frame) && elem pos4 frame then
-       do bd' <- move1' bd 4 (2,2) tl
-          bd3 <- move1' bd' 3 (2,1) $ tl ++ [(2,2)]
-          return bd3
+       else moveTile m (3,0) tl bd -- "away from the frame"
+              >>= moveTile m' pc tl
+              >>= moveTile m pe (tl ++ [pc])
   else if elem pos3 frame && not (elem pos4 frame) then
-       do bd' <- move1' bd 3 (3,2) tl
-          bd3 <- move1' bd' 4 (3,1) $ tl ++ [(3,2)]
-          return bd3
-  else do bd' <- move1' bd 4 (2,2) tl
-          bd3 <- move1' bd' 3 (2,1) $ tl ++ [(2,2)]
-          return bd3
- where greatPos34 p3 p4 = case (p3, p4) of
-                          ((2,1), (2,2)) -> True
-                          ((3,2), (3,1)) -> True
-                          ((3,3), (3,2)) -> True
-                          ((2,3), (3,3)) -> True
-                          ((2,2), (2,3)) -> True
-                          _ -> False
+       moveTile m pd tl bd >>= moveTile m' pf (tl ++ [pd])
+  else moveTile m' pc tl bd >>= moveTile m pe (tl ++ [pc])
 
 
 move913 :: Board -> Writer [OP] Board
-move913 bd = do
-  tell [S913]
-  bd' <- move913' bd
-  let tl = [(0,2),(1,2),(2,2),(3,2)]
-  case (findPos 9 bd') of
-    (2,1) -> do bd21 <- move0 bd' (0,1) $ tl ++ [(2,1),(1,1)]
-                applyOpW [L, L, U, R, R, D, L] bd21
-    (1,0) -> do bd10 <- move0 bd' (0,0) $ tl ++ [(1,0),(2,0)]
-                applyOpW [L, L, D, R, R, U, L] bd10
-    (0,0) -> do bd00 <- move0 bd' (0,1) $ tl ++ [(0,0),(1,0)]
-                applyOpW [U, L] bd00
-    (1,1) -> do bd11 <- move0 bd' (0,0) $ tl ++ [(1,1),(0,1)]
-                applyOpW [D, L] bd11
-    (0,1) -> return bd'
-
-
-move913' :: Board -> Writer [OP] Board
-move913' bd = do
-  let frame = [(0,0),(0,1),(1,0),(1,1),(2,0),(2,1)]
-  let tl = [(0,3),(1,3),(0,2),(1,2)]
-  let pos9 = findPos 9 bd
-  let pos13 = findPos 13 bd
-  if elem pos9 frame && elem pos13 frame then
-       if greatPos913 pos9 pos13 then return bd
-       else 
-       do bd'' <- move1' bd 9 (3,0) tl
-          bd' <- move1' bd'' 13 (1,1) tl
-          bd3 <- move1' bd' 9 (2,1) $ tl ++ [(1,1)]
-          return bd3
-  else if not (elem pos9 frame) && elem pos13 frame then
-       do bd' <- move1' bd 13 (1,1) tl
-          bd3 <- move1' bd' 9 (2,1) $ tl ++ [(1,1)]
-          return bd3
-  else if elem pos9 frame && not (elem pos13 frame) then
-       do bd' <- move1' bd 9 (1,0) tl
-          bd3 <- move1' bd' 13 (2,0) $ tl ++ [(1,0)]
-          return bd3
-  else do bd' <- move1' bd 13 (1,1) tl
-          bd3 <- move1' bd' 9 (2,1) $ tl ++ [(1,1)]
-          return bd3
- where greatPos913 p9 p13 = case (p9, p13) of
-                            ((2,1), (1,1)) -> True
-                            ((1,0), (2,0)) -> True
-                            ((0,0), (1,0)) -> True
-                            ((0,1), (0,0)) -> True
-                            ((1,1), (0,1)) -> True
-                            _ -> False
+move913 bd = move34x bd [(0,1),(0,0),(1,1),(1,0),(2,1),(2,0)] S913 9 13
 
 
 move78 :: Board -> Writer [OP] Board
@@ -293,54 +241,56 @@ move78 bd = do
   if findPos 7 bd == (2,2) && findPos 8 bd == (3,2)
   then return bd
   else do let tl = [(0,0),(0,1),(1,2),(2,3),(3,3)]
-          bd7 <- move1' bd 7 (1,1) tl
-          bd8 <- move1' bd7 8 (2,2) $ tl ++ [(1,1)]
-          bdz <- move0 bd8 (2,1) $ tl ++ [(1,1),(2,2)]
-          applyOpW [R, U, L, L, D, D, R, U] bdz
+          bd' <- moveTile 7 (1,1) tl bd
+          do if findPos 8 bd' == (1,0) then
+               moveTile 8 (2,2) tl bd' -- without restriction
+                >>= moveTile 7 (1,1) tl -- try again
+             else return bd'
+           >>= moveTile 8 (2,2) (tl ++ [(1,1)])
+           >>= move0 (2,1) (tl ++ [(1,1),(2,2)])
+           >>= applyOpW [R, U, L, L, D, D, R, U]
 
 
 move1014 :: Board -> Writer [OP] Board
 move1014 bd = do
   tell [S1014]
-  if findPos 10 bd == (1,1) && findPos 14 bd == (1,0)
-  then return bd
-  else do let tl = [(0,0),(0,1),(1,2),(2,2),(2,3)]
-          bd14 <- move1' bd 14 (1,1) tl
-          if findPos 10 bd14 == (1,0) then do
-            bd14' <- move1' bd14 10 (2,0) $ tl ++ [(1,1)] -- (1,0):0
-            applyOpW [D, L, L, U, R, D, L, U, R, R, D,
-                      L, U, R, D, L, L, U, R, R, D, L] bd14'
-          else if findPos 0 bd14 == (1,0) then do
-            if findPos 10 bd14 == (2,1) then do
-              applyOpW [D, L] bd14
-            else do
-              bd2 <- applyOpW [D, L] bd14
-              bd14' <- move1' bd2 10 (3,1) $ tl ++ [(1,1)]
-              applyOpW [U, R, D, L, U, R, D, L, L, U, R, R, D, L] bd14'
-          else do
-            bd10 <- move1' bd14 10 (2,1) tl
-            bdz <- move0 bd10 (1,0) [(1,1),(2,1)]
-            applyOpW [D, L] bdz
+  if findPos 10 bd == (1,1) && findPos 14 bd == (1,0) then return bd
+  else do
+    let tl = [(0,0),(0,1),(1,2),(2,2),(2,3)]
+    bd14 <- moveTile 14 (1,1) tl bd
+    let pos10 = findPos 10 bd14
+    let pos0 = findPos 0 bd14
+    if pos10 == (1,0) then
+      moveTile 10 (2,0) (tl ++ [(1,1)]) bd14 -- (1,0):0
+        >>= move0 (3,1) (tl ++ [(2,0)])
+        >>= moveTile 10 (3,1) (tl ++ [(1,0)])
+        >>= moveTile 14 (2,1) (tl ++ [(3,1)])
+        >>= move0 (1,0) (tl ++ [(2,1)])
+        >>= applyOpW [D, L, L, U, R, R, D, L]
+    else if pos0 == (1,0) then
+      if pos10 == (2,1) then applyOpW [D, L] bd14
+      else applyOpW [D, L] bd14
+             >>= moveTile 10 (3,1) (tl ++ [(1,1)])
+             >>= moveTile 14 (2,1) (tl ++ [(3,0),(3,1)])
+             >>= move0 (1,1) (tl ++ [(2,1)])
+             >>= applyOpW [L, L, U, R, R, D, L]
+    else moveTile 10 (2,1) tl bd14
+            >>= move0 (1,0) [(1,1),(2,1)]
+            >>= applyOpW [D, L]
 
 
 move1115 :: Board -> Writer [OP] Board
 move1115 bd = do
   tell [S1115]
   let tl = [(1,0),(1,1),(2,2),(3,2)]
-  bd11 <- move1' bd 11 (2,1) tl
-  bd12 <- move1' bd11 12 (3,1) tl
-  bd15 <- move1' bd12 15 (2,0) tl
-  return bd15
+  moveTile 11 (2,1) tl bd
+    >>= moveTile 12 (3,1) tl
+    >>= moveTile 15 (2,0) tl
 
 
 solve :: Board -> Writer [OP] Board
-solve bd = do
-  bd1256 <- move1 bd
-  bd34 <- move34 bd1256
-  bd913 <- move913 bd34
-  bd78 <- move78 bd913
-  bd1014 <- move1014 bd78
-  move1115 bd1014
+solve bd = return bd
+  >>= move1 >>= move34 >>= move913 >>= move78 >>= move1014 >>= move1115
 
 
 printSol :: [OP] -> IO ()
@@ -357,6 +307,7 @@ printSol (h:t) = do
             | h == S1014 = putStrLn "\n--[10,14]--------------------------"
             | h == S1115 = putStrLn "\n--[11,12,15]-----------------------"
             | otherwise = putStr $ " " ++ show h
+
 
 printBoard :: Board -> IO ()
 printBoard bd = do
